@@ -1,35 +1,35 @@
 # data-lineage-cli
 
-Uma ferramenta de linha de comando que analisa queries SQL, extrai automaticamente a linhagem de dados (tabelas, colunas, joins, filtros) e usa AWS Bedrock para gerar uma descrição em linguagem natural.
+A command-line tool that parses SQL queries, automatically extracts data lineage (tables, columns, joins, filters), and uses AWS Bedrock to generate a plain-English description of what the query does.
 
-Útil para equipes de governança e engenharia de dados que precisam documentar e auditar pipelines SQL sem esforço manual.
-
----
-
-## Por que é relevante
-
-A governança de dados é um requisito crescente em organizações que lidam com dados sensíveis ou regulados. Mapear manualmente a linhagem de centenas de queries SQL é inviável — esta ferramenta automatiza essa extração e usa LLMs para produzir descrições legíveis por humanos, facilitando catalogação, auditoria e documentação.
+Built for data governance and data engineering teams who need to document and audit SQL pipelines without manual effort.
 
 ---
 
-## Instalação
+## Why it matters
 
-### Pré-requisitos
-- Docker (recomendado)
-- ou Python 3.12+ com virtualenv
+Data governance is a growing requirement for organizations handling sensitive or regulated data. Manually mapping the lineage of hundreds of SQL queries is not feasible — this tool automates that extraction and uses LLMs to produce human-readable descriptions, making cataloging, auditing, and documentation significantly easier.
 
-### Com Docker (recomendado)
+---
+
+## Installation
+
+### Prerequisites
+- Docker (recommended)
+- or Python 3.12+ with a virtual environment
+
+### With Docker (recommended)
 
 ```bash
-git clone https://github.com/<seu-usuario>/data-lineage-cli.git
+git clone https://github.com/<your-username>/data-lineage-cli.git
 cd data-lineage-cli
 docker build -t lineage-cli .
 ```
 
-### Com virtualenv
+### With a virtual environment
 
 ```bash
-git clone https://github.com/<seu-usuario>/data-lineage-cli.git
+git clone https://github.com/<your-username>/data-lineage-cli.git
 cd data-lineage-cli
 python -m venv .venv
 source .venv/bin/activate
@@ -38,46 +38,46 @@ pip install -r requirements.txt
 
 ---
 
-## Configuração AWS
+## AWS configuration
 
-Para usar a geração de descrição via Bedrock, configure suas credenciais AWS:
+To use the Bedrock LLM description feature, configure your AWS credentials:
 
 ```bash
 aws configure
 ```
 
-Ou exporte as variáveis de ambiente:
+Or export the environment variables:
 
 ```bash
-export AWS_ACCESS_KEY_ID=sua_key
-export AWS_SECRET_ACCESS_KEY=sua_secret
+export AWS_ACCESS_KEY_ID=your_key
+export AWS_SECRET_ACCESS_KEY=your_secret
 export AWS_DEFAULT_REGION=us-east-1
 ```
 
-O modelo usado é `anthropic.claude-haiku-4-5-20251001` via AWS Bedrock. Certifique-se de que o acesso ao modelo está habilitado no console do Bedrock na sua conta.
+The model used is `anthropic.claude-haiku-4-5-20251001` via AWS Bedrock. Make sure model access is enabled in the Bedrock console for your account.
 
 ---
 
-## Uso
+## Usage
 
-### Sintaxe
+### Syntax
 
 ```bash
 # Docker
-docker run --rm lineage-cli "SQL" [--no-llm] [--dialect DIALETO] [--region REGIAO]
+docker run --rm lineage-cli "SQL" [--no-llm] [--dialect DIALECT] [--region REGION]
 
-# Local (com venv ativo)
-python main.py "SQL" [--no-llm] [--dialect DIALETO] [--region REGIAO]
+# Local (with venv active)
+python main.py "SQL" [--no-llm] [--dialect DIALECT] [--region REGION]
 ```
 
-### Exemplos
+### Examples
 
-**SELECT simples com filtro:**
+**Simple SELECT with filter:**
 ```bash
 docker run --rm lineage-cli "SELECT name, email FROM users WHERE active = true" --no-llm
 ```
 
-**JOIN entre tabelas com descrição do LLM:**
+**JOIN with LLM description:**
 ```bash
 docker run --rm \
   -e AWS_ACCESS_KEY_ID \
@@ -86,7 +86,7 @@ docker run --rm \
   lineage-cli "SELECT u.name, o.total FROM users u JOIN orders o ON u.id = o.user_id WHERE o.status = 'paid'"
 ```
 
-**INSERT INTO com SELECT:**
+**INSERT INTO with SELECT:**
 ```bash
 docker run --rm lineage-cli \
   "INSERT INTO summary SELECT region, sum(amount) FROM sales GROUP BY region" \
@@ -100,37 +100,37 @@ docker run --rm lineage-cli \
   --dialect bigquery --no-llm
 ```
 
-### Saída esperada
+### Expected output
 
 ```
-Linhagem detectada
+Detected Lineage
 ╭────────────────────┬────────────────────────────────────────╮
-│ Campo              │ Valor                                  │
+│ Field              │ Value                                  │
 ├────────────────────┼────────────────────────────────────────┤
-│ Fontes             │ users, orders                          │
+│ Sources            │ users, orders                          │
 ├────────────────────┼────────────────────────────────────────┤
-│ Destino            │ (consulta direta)                      │
+│ Target             │ (direct query)                         │
 ├────────────────────┼────────────────────────────────────────┤
-│ Colunas lidas      │ name, total, id, user_id, status       │
+│ Columns read       │ name, total, id, user_id, status       │
 ├────────────────────┼────────────────────────────────────────┤
 │ Joins              │ INNER JOIN orders                      │
 ├────────────────────┼────────────────────────────────────────┤
-│ Filtros            │ o.status = 'paid'                      │
+│ Filters            │ o.status = 'paid'                      │
 ╰────────────────────┴────────────────────────────────────────╯
 
-╭─ Descrição gerada pelo LLM ────────────────────────────────╮
+╭─ LLM-generated description ────────────────────────────────╮
 │                                                             │
-│  Esta query combina dados de clientes (users) com seus      │
-│  pedidos pagos (orders), retornando nome do cliente e       │
-│  valor total. A junção é feita pelo id do usuário,          │
-│  filtrando apenas pedidos com status 'paid'.                │
+│  This query joins customer data (users) with their paid     │
+│  orders (orders), returning the customer name and order     │
+│  total. The join is on user id, filtered to orders with     │
+│  status 'paid'.                                             │
 │                                                             │
 ╰─────────────────────────────────────────────────────────────╯
 ```
 
 ---
 
-## Arquitetura
+## Architecture
 
 ```
 ┌─────────────┐     ┌──────────────┐     ┌─────────────────┐     ┌──────────────┐
@@ -138,57 +138,57 @@ Linhagem detectada
 │  (CLI arg)  │     │  (parser.py) │     │  (bedrock.py)   │     │(formatter.py)│
 └─────────────┘     └──────────────┘     └─────────────────┘     └──────────────┘
                           │                       │
-                    LineageInfo             descrição em
-                    (estruturado)           linguagem natural
+                    LineageInfo            plain-English
+                    (structured)           description
 ```
 
-**Fluxo:**
-1. A query SQL é recebida como argumento posicional via Typer
-2. `parser.py` usa sqlglot para construir a AST e extrair `LineageInfo`
-3. `bedrock.py` monta um prompt estruturado e chama Claude Haiku via boto3
-4. `formatter.py` renderiza tabela e painel no terminal com Rich
+**Flow:**
+1. The SQL query is received as a positional argument via Typer
+2. `parser.py` uses sqlglot to build the AST and extract a `LineageInfo` object
+3. `bedrock.py` builds a structured prompt and calls Claude Haiku via boto3
+4. `formatter.py` renders a table and panel in the terminal using Rich
 
 ---
 
-## Testes
+## Tests
 
 ```bash
 # Docker
 docker run --rm --entrypoint pytest lineage-cli tests/ -v
 
-# Local (com venv ativo)
+# Local (with venv active)
 pytest tests/ -v
 ```
 
-Os testes cobrem: SELECT simples, INNER JOIN, LEFT JOIN com múltiplos filtros, INSERT INTO, CREATE TABLE AS SELECT, dialeto BigQuery e extração de colunas escritas.
+Test coverage: simple SELECT, INNER JOIN, LEFT JOIN with multiple filters, INSERT INTO, CREATE TABLE AS SELECT, BigQuery dialect, and explicit column list in INSERT.
 
 ---
 
-## Decisões técnicas
+## Technical decisions
 
-| Decisão | Motivo |
+| Decision | Reason |
 |---|---|
-| **sqlglot** em vez de regex | Regex quebra em queries complexas (subqueries, aliases, CTEs). sqlglot produz uma AST completa e suporta múltiplos dialetos de forma confiável. |
-| **Claude Haiku** via Bedrock | Haiku tem o melhor custo-benefício para descrições curtas (2-3 frases). Bedrock mantém os dados dentro da infra AWS, importante para ambientes com restrições de compliance. |
-| **Typer** em vez de argparse | API declarativa mais limpa, help automático formatado, e suporte nativo a flags booleanas como `--no-llm`. |
-| **Rich** para output | Terminal com cores e tabelas melhora a leitura da linhagem sem adicionar dependências pesadas. |
-| **--no-llm flag** | Permite usar o parser e o formatter sem nenhuma dependência de credenciais AWS, útil para CI e desenvolvimento local. |
+| **sqlglot** over regex | Regex breaks on complex queries (subqueries, aliases, CTEs). sqlglot produces a full AST and supports multiple dialects reliably. |
+| **Claude Haiku** via Bedrock | Best cost-to-quality ratio for short descriptions (2-3 sentences). Bedrock keeps data within AWS infrastructure, important for compliance-restricted environments. |
+| **Typer** over argparse | Cleaner declarative API, auto-formatted help output, and native support for boolean flags like `--no-llm`. |
+| **Rich** for output | Colored tables and panels improve lineage readability without heavy dependencies. |
+| **`--no-llm` flag** | Allows using the parser and formatter without any AWS credentials — useful for CI and local development. |
 
 ---
 
-## Estrutura do projeto
+## Project structure
 
 ```
 data-lineage-cli/
 ├── lineage/
 │   ├── __init__.py
-│   ├── parser.py        # extrai tabelas, colunas, joins, filtros via sqlglot
-│   ├── bedrock.py       # cliente AWS Bedrock, chama Claude Haiku
-│   └── formatter.py     # formata saída colorida no terminal com Rich
+│   ├── parser.py        # extracts tables, columns, joins, filters via sqlglot
+│   ├── bedrock.py       # AWS Bedrock client, calls Claude Haiku
+│   └── formatter.py     # formats colored output in the terminal with Rich
 ├── tests/
 │   ├── __init__.py
 │   └── test_parser.py
-├── main.py              # entrypoint Typer
+├── main.py              # Typer entrypoint
 ├── Dockerfile
 ├── requirements.txt
 └── README.md
@@ -196,10 +196,10 @@ data-lineage-cli/
 
 ---
 
-## Próximos passos
+## Next steps
 
-- Suporte a múltiplas queries em sequência para detectar linhagem entre steps de um pipeline
-- Exportar resultado em JSON para ingestão em catálogos como OpenMetadata ou DataHub
-- Modo `--watch` que monitora um arquivo `.sql` e reanalisa ao salvar
-- Cache de descrições para não rechamar o Bedrock para queries já vistas
-- Suporte a CTEs (`WITH ... AS (...)`) no parser
+- Support for sequential multi-query analysis to detect lineage across pipeline steps
+- JSON export for ingestion into data catalogs like OpenMetadata or DataHub
+- `--watch` mode that monitors a `.sql` file and re-analyzes on save
+- Description caching to avoid re-calling Bedrock for queries already seen
+- CTE support (`WITH ... AS (...)`) in the parser

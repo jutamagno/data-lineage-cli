@@ -4,21 +4,21 @@ from rich.console import Console
 from lineage.parser import extract_lineage
 from lineage.formatter import print_lineage
 
-app = typer.Typer(help="Ferramenta de linhagem de dados com LLM via AWS Bedrock.")
+app = typer.Typer(help="Data lineage CLI — parse SQL and describe it with AWS Bedrock.")
 console = Console(stderr=True)
 
 
 @app.command()
 def analyze(
-    sql: str = typer.Argument(..., help="Query SQL para analisar"),
-    no_llm: bool = typer.Option(False, "--no-llm", help="Pula chamada ao Bedrock"),
-    dialect: str = typer.Option("", "--dialect", help="Dialeto SQL: '' (padrão), bigquery, spark"),
-    region: str = typer.Option("us-east-1", "--region", help="Região AWS para o Bedrock"),
+    sql: str = typer.Argument(..., help="SQL query to analyze"),
+    no_llm: bool = typer.Option(False, "--no-llm", help="Skip the Bedrock LLM call"),
+    dialect: str = typer.Option("", "--dialect", help="SQL dialect: '' (default), bigquery, spark"),
+    region: str = typer.Option("us-east-1", "--region", help="AWS region for Bedrock"),
 ):
     try:
         lineage = extract_lineage(sql, dialect=dialect)
     except Exception as exc:
-        console.print(f"[bold red]Erro ao analisar SQL:[/bold red] {exc}")
+        console.print(f"[bold red]Failed to parse SQL:[/bold red] {exc}")
         raise typer.Exit(code=1)
 
     description = ""
@@ -27,7 +27,7 @@ def analyze(
             from lineage.bedrock import describe_lineage
             description = describe_lineage(lineage, sql, region=region)
         except RuntimeError as exc:
-            console.print(f"[bold yellow]Aviso:[/bold yellow] {exc}")
+            console.print(f"[bold yellow]Warning:[/bold yellow] {exc}")
 
     print_lineage(lineage, description)
 

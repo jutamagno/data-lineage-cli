@@ -28,33 +28,33 @@ def describe_lineage(lineage: LineageInfo, sql: str, region: str = "us-east-1") 
         return body["content"][0]["text"].strip()
     except NoCredentialsError:
         raise RuntimeError(
-            "Credenciais AWS não encontradas. Configure com:\n"
+            "AWS credentials not found. Configure them with:\n"
             "  aws configure\n"
-            "ou defina as variáveis de ambiente:\n"
+            "or set the environment variables:\n"
             "  AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION"
         )
     except ClientError as exc:
         code = exc.response["Error"]["Code"]
-        raise RuntimeError(f"Erro ao chamar AWS Bedrock ({code}): {exc}") from exc
+        raise RuntimeError(f"AWS Bedrock error ({code}): {exc}") from exc
 
 
 def _build_prompt(lineage: LineageInfo, sql: str) -> str:
     joins_text = (
         ", ".join(f"{j['type']} JOIN {j['table']}" for j in lineage.joins)
         if lineage.joins
-        else "nenhum"
+        else "none"
     )
-    filters_text = "; ".join(lineage.filters) if lineage.filters else "nenhum"
+    filters_text = "; ".join(lineage.filters) if lineage.filters else "none"
 
     return (
-        "Você é um especialista em governança de dados. Analise a linhagem abaixo "
-        "e escreva em 2-3 frases o que esta query faz, quais dados ela consome e "
-        "o que ela produz. Seja direto e técnico.\n\n"
-        f"SQL original:\n{sql}\n\n"
-        "Linhagem extraída:\n"
-        f"- Tabelas fonte: {', '.join(lineage.source_tables) or 'nenhuma'}\n"
-        f"- Tabela destino: {lineage.target_table or 'consulta direta'}\n"
-        f"- Colunas lidas: {', '.join(lineage.columns_read) or 'nenhuma'}\n"
+        "You are a data governance expert. Analyze the lineage below and write "
+        "2-3 sentences describing what this query does, what data it consumes, "
+        "and what it produces. Be concise and technical.\n\n"
+        f"Original SQL:\n{sql}\n\n"
+        "Extracted lineage:\n"
+        f"- Source tables: {', '.join(lineage.source_tables) or 'none'}\n"
+        f"- Target table: {lineage.target_table or 'direct query'}\n"
+        f"- Columns read: {', '.join(lineage.columns_read) or 'none'}\n"
         f"- Joins: {joins_text}\n"
-        f"- Filtros: {filters_text}\n"
+        f"- Filters: {filters_text}\n"
     )
