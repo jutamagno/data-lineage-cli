@@ -22,6 +22,7 @@ EXIT_BEDROCK_ERROR = 4
 def analyze(
     sql: str = typer.Argument(..., help="SQL query to analyze"),
     no_llm: bool = typer.Option(False, "--no-llm", help="Skip the Bedrock LLM call"),
+    no_cache: bool = typer.Option(False, "--no-cache", help="Skip cache and always call Bedrock"),
     dialect: str = typer.Option("", "--dialect", help="SQL dialect: '' (default), bigquery, spark"),
     region: str = typer.Option("us-east-1", "--region", help="AWS region for Bedrock"),
 ) -> None:
@@ -38,21 +39,30 @@ def analyze(
     latency_ms: int | None = None
 
     if not no_llm:
-        from lineage.bedrock import BedrockError, CredentialsError, describe_lineage
+        from lineage.bedrock import BedrockError, BedrockProvider, CredentialsError
+        from lineage.cache import get_cached, set_cached
 
-        t0 = time.monotonic()
-        try:
-            description = describe_lineage(lineage, sql, region=region)
-            latency_ms = int((time.monotonic() - t0) * 1000)
-            bound.info("llm_call_succeeded", latency_ms=latency_ms)
-        except CredentialsError as exc:
-            bound.error("aws_credentials_missing", error=str(exc))
-            record_run(sql, dialect, llm_used=True, error=str(exc))
-            raise typer.Exit(code=EXIT_CREDENTIALS_ERROR)
-        except BedrockError as exc:
-            bound.error("bedrock_call_failed", error=str(exc))
-            record_run(sql, dialect, llm_used=True, error=str(exc))
-            raise typer.Exit(code=EXIT_BEDROCK_ERROR)
+        cached = None if no_cache else get_cached(sql, dialect)
+        if cached:
+            description = cached
+            bound.info("cache_hit")
+        else:
+            provider = BedrockProvider(region=region)
+            t0 = time.monotonic()
+            try:
+                description = provider.describe(lineage, sql)
+                latency_ms = int((time.monotonic() - t0) * 1000)
+                bound.info("llm_call_succeeded", latency_ms=latency_ms)
+                if not no_cache:
+                    set_cached(sql, dialect, description)
+            except CredentialsError as exc:
+                bound.error("aws_credentials_missing", error=str(exc))
+                record_run(sql, dialect, llm_used=True, error=str(exc))
+                raise typer.Exit(code=EXIT_CREDENTIALS_ERROR)
+            except BedrockError as exc:
+                bound.error("bedrock_call_failed", error=str(exc))
+                record_run(sql, dialect, llm_used=True, error=str(exc))
+                raise typer.Exit(code=EXIT_BEDROCK_ERROR)
 
     record_run(sql, dialect, llm_used=not no_llm, latency_ms=latency_ms)
     print_lineage(lineage, description)
