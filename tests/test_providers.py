@@ -40,3 +40,65 @@ def test_mock_call_receives_lineage():
     recorded_lineage, _ = provider.calls[0]
     assert recorded_lineage.source_tables == ["users"]
     assert recorded_lineage.target_table == "summary"
+
+
+# --- OllamaProvider ---
+
+import json  # noqa: E402
+
+import pytest  # noqa: E402
+
+from lineage.providers import OllamaProvider  # noqa: E402
+
+
+def test_ollama_describe_strips_whitespace(monkeypatch: pytest.MonkeyPatch) -> None:
+    body = json.dumps({"response": "  hello world  "}).encode()
+
+    class _Resp:
+        def read(self) -> bytes:
+            return body
+        def __enter__(self) -> "_Resp":
+            return self
+        def __exit__(self, *args: object) -> None:
+            pass
+
+    monkeypatch.setattr("urllib.request.urlopen", lambda _req: _Resp())
+    result = OllamaProvider().describe(LineageInfo(), "SELECT 1")
+    assert result == "hello world"
+
+
+def test_ollama_posts_model_and_stream_false(monkeypatch: pytest.MonkeyPatch) -> None:
+    import urllib.request
+
+    captured: list[urllib.request.Request] = []
+    body = json.dumps({"response": "ok"}).encode()
+
+    class _Resp:
+        def read(self) -> bytes:
+            return body
+        def __enter__(self) -> "_Resp":
+            return self
+        def __exit__(self, *args: object) -> None:
+            pass
+
+    def fake_urlopen(req: urllib.request.Request) -> _Resp:
+        captured.append(req)
+        return _Resp()
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    OllamaProvider(model="mistral", base_url="http://myserver:11434").describe(
+        LineageInfo(), "SELECT 1"
+    )
+
+    assert len(captured) == 1
+    req = captured[0]
+    assert "myserver:11434" in req.full_url
+    payload = json.loads(req.data)
+    assert payload["model"] == "mistral"
+    assert payload["stream"] is False
+
+
+def test_ollama_has_describe_method() -> None:
+    provider = OllamaProvider()
+    assert callable(provider.describe)

@@ -110,3 +110,47 @@ def test_render_openmetadata_is_valid_json():
     lineage = LineageInfo()
     output = render_openmetadata(lineage, "SELECT 1")
     assert json.loads(output) == []
+
+
+# --- render_mermaid ---
+
+from lineage.output import render_mermaid  # noqa: E402
+
+
+def test_render_mermaid_starts_with_graph_lr():
+    output = render_mermaid(LineageInfo(source_tables=["orders"], target_table="summary"))
+    assert output.startswith("graph LR")
+
+
+def test_render_mermaid_table_level_when_no_column_edges():
+    lineage = LineageInfo(source_tables=["orders"], target_table="summary")
+    output = render_mermaid(lineage)
+    assert "orders" in output
+    assert "summary" in output
+    assert "-->" in output
+
+
+def test_render_mermaid_column_edges_when_available():
+    lineage = LineageInfo(
+        source_tables=["t"],
+        target_table="out",
+        column_lineage=[ColumnEdge("t", "amount", "total")],
+    )
+    output = render_mermaid(lineage)
+    assert "amount" in output
+    assert "total" in output
+
+
+def test_render_mermaid_empty_shows_placeholder():
+    output = render_mermaid(LineageInfo())
+    assert "no lineage detected" in output
+
+
+def test_render_mermaid_node_ids_are_valid_identifiers():
+    lineage = LineageInfo(
+        source_tables=["my.table"],
+        target_table="out.result",
+        column_lineage=[ColumnEdge("my.table", "col-1", "col_2")],
+    )
+    output = render_mermaid(lineage)
+    assert "[" not in output.split("\n")[0]  # first line is graph LR, no brackets

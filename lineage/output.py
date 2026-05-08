@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import re
 from collections import defaultdict
 
 from lineage.parser import LineageInfo
@@ -52,3 +53,38 @@ def render_openmetadata(lineage: LineageInfo, sql: str) -> str:
         })
 
     return json.dumps(result, indent=2)
+
+
+def render_mermaid(lineage: LineageInfo) -> str:
+    """Render lineage as a Mermaid graph LR diagram."""
+    lines = ["graph LR"]
+    target = lineage.target_table or "result"
+    seen: set[tuple[str, str]] = set()
+
+    if lineage.column_lineage:
+        for edge in lineage.column_lineage:
+            tgt_label = (
+                f"{lineage.target_table}.{edge.target_col}"
+                if lineage.target_table
+                else edge.target_col
+            )
+            src_label = f"{edge.source_table}.{edge.source_col}"
+            key = (src_label, tgt_label)
+            if key not in seen:
+                seen.add(key)
+                lines.append(f'  {_mid(src_label)}["{src_label}"] --> {_mid(tgt_label)}["{tgt_label}"]')
+    else:
+        for src in lineage.source_tables:
+            key = (src, target)
+            if key not in seen:
+                seen.add(key)
+                lines.append(f'  {_mid(src)}["{src}"] --> {_mid(target)}["{target}"]')
+
+    if len(lines) == 1:
+        lines.append('  empty["(no lineage detected)"]')
+
+    return "\n".join(lines)
+
+
+def _mid(name: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9]", "_", name)
