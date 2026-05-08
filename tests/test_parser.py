@@ -96,3 +96,70 @@ def test_bigquery_dialect():
 
     assert "orders" in result.source_tables
     assert set(result.columns_read) >= {"user_id", "amount", "status"}
+
+
+def test_cte_name_excluded_from_sources():
+    sql = """
+    WITH active_users AS (SELECT id FROM users WHERE active = 1)
+    SELECT * FROM active_users
+    """
+    result = extract_lineage(sql)
+
+    assert result.source_tables == ["users"]
+    assert "active_users" not in result.source_tables
+
+
+def test_cte_multiple_ctes():
+    sql = """
+    WITH
+      a AS (SELECT id FROM users),
+      b AS (SELECT id FROM orders)
+    SELECT a.id FROM a JOIN b ON a.id = b.id
+    """
+    result = extract_lineage(sql)
+
+    assert set(result.source_tables) == {"users", "orders"}
+    assert "a" not in result.source_tables
+    assert "b" not in result.source_tables
+
+
+def test_cte_chained_references():
+    sql = """
+    WITH
+      base AS (SELECT id, amount FROM transactions WHERE year = 2024),
+      totals AS (SELECT id, SUM(amount) AS total FROM base GROUP BY id)
+    SELECT * FROM totals
+    """
+    result = extract_lineage(sql)
+
+    assert "transactions" in result.source_tables
+    assert "base" not in result.source_tables
+    assert "totals" not in result.source_tables
+
+
+def test_union_sources():
+    sql = "SELECT id FROM customers UNION SELECT id FROM prospects"
+    result = extract_lineage(sql)
+
+    assert set(result.source_tables) == {"customers", "prospects"}
+
+
+def test_union_all_sources():
+    sql = "SELECT region, amount FROM sales_2023 UNION ALL SELECT region, amount FROM sales_2024"
+    result = extract_lineage(sql)
+
+    assert set(result.source_tables) == {"sales_2023", "sales_2024"}
+
+
+def test_union_filters_both_branches():
+    sql = "SELECT id FROM t1 WHERE x = 1 UNION SELECT id FROM t2 WHERE y = 2"
+    result = extract_lineage(sql)
+
+    assert len(result.filters) == 2
+
+
+def test_subquery_in_from():
+    sql = "SELECT sub.id FROM (SELECT id FROM users WHERE active = 1) AS sub"
+    result = extract_lineage(sql)
+
+    assert result.source_tables == ["users"]

@@ -19,14 +19,24 @@ class LineageInfo:
 def extract_lineage(sql: str, dialect: str = "") -> LineageInfo:
     tree: exp.Expression = sqlglot.parse_one(sql, dialect=dialect or None)  # type: ignore[assignment]
     info = LineageInfo()
+    cte_names = _cte_names(tree)
 
     _extract_target(tree, info)
-    _extract_sources(tree, info)
+    _extract_sources(tree, info, cte_names)
     _extract_columns(tree, info)
     _extract_joins(tree, info)
     _extract_filters(tree, info)
 
     return info
+
+
+def _cte_names(tree: exp.Expression) -> set[str]:
+    names: set[str] = set()
+    with_clause = tree.find(exp.With)
+    if with_clause:
+        for cte in with_clause.find_all(exp.CTE):
+            names.add(cte.alias)
+    return names
 
 
 def _extract_target(tree: exp.Expression, info: LineageInfo) -> None:
@@ -49,17 +59,18 @@ def _extract_target(tree: exp.Expression, info: LineageInfo) -> None:
             info.target_table = target.name
 
 
-def _extract_sources(tree: exp.Expression, info: LineageInfo) -> None:
-    # For INSERT, the SELECT sub-tree holds FROM/JOIN tables; the very first
-    # Table node is the target, so we collect from the SELECT downward.
+def _extract_sources(
+    tree: exp.Expression, info: LineageInfo, cte_names: set[str] | None = None
+) -> None:
     select_scope = _get_select_scope(tree)
     if select_scope is None:
         return
 
+    excluded = (cte_names or set()) | ({info.target_table} if info.target_table else set())
     seen: set[str] = set()
     for table in select_scope.find_all(exp.Table):
         name = table.name
-        if name and name != info.target_table and name not in seen:
+        if name and name not in excluded and name not in seen:
             seen.add(name)
             info.source_tables.append(name)
 
@@ -68,6 +79,10 @@ def _get_select_scope(tree: exp.Expression) -> exp.Expression | None:
     if isinstance(tree, exp.Select):
         return tree
     if isinstance(tree, (exp.Insert, exp.Create)):
+        # Prefer Union over a single Select so both branches are traversed
+        union = tree.find(exp.Union)
+        if union:
+            return union
         return tree.find(exp.Select)
     return tree
 
@@ -118,14 +133,13 @@ def _extract_filters(tree: exp.Expression, info: LineageInfo) -> None:
     if select_scope is None:
         return
 
-    where = select_scope.find(exp.Where)
-    if where is None:
-        return
-
-    condition = where.this
-    clauses = _split_and(condition)
-    for clause in clauses:
-        info.filters.append(clause.sql())
+    seen: set[str] = set()
+    for where in select_scope.find_all(exp.Where):
+        for clause in _split_and(where.this):
+            text = clause.sql()
+            if text not in seen:
+                seen.add(text)
+                info.filters.append(text)
 
 
 def _split_and(node: exp.Expression) -> list[exp.Expression]:
