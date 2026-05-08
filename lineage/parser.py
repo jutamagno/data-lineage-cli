@@ -12,12 +12,12 @@ class LineageInfo:
     target_table: str | None = None
     columns_read: list[str] = field(default_factory=list)
     columns_written: list[str] = field(default_factory=list)
-    joins: list[dict] = field(default_factory=list)
+    joins: list[dict[str, str]] = field(default_factory=list)
     filters: list[str] = field(default_factory=list)
 
 
 def extract_lineage(sql: str, dialect: str = "") -> LineageInfo:
-    tree = sqlglot.parse_one(sql, dialect=dialect or None)
+    tree: exp.Expression = sqlglot.parse_one(sql, dialect=dialect or None)  # type: ignore[assignment]
     info = LineageInfo()
 
     _extract_target(tree, info)
@@ -104,10 +104,12 @@ def _extract_joins(tree: exp.Expression, info: LineageInfo) -> None:
 
 
 def _join_type(join: exp.Join) -> str:
-    if join.args.get("kind"):
-        return join.args["kind"].upper()
-    if join.args.get("side"):
-        return join.args["side"].upper()
+    kind = join.args.get("kind")
+    if kind:
+        return str(kind).upper()
+    side = join.args.get("side")
+    if side:
+        return str(side).upper()
     return "INNER"
 
 
@@ -121,7 +123,6 @@ def _extract_filters(tree: exp.Expression, info: LineageInfo) -> None:
         return
 
     condition = where.this
-    # Split AND-chained predicates into individual filter strings
     clauses = _split_and(condition)
     for clause in clauses:
         info.filters.append(clause.sql())
@@ -129,5 +130,5 @@ def _extract_filters(tree: exp.Expression, info: LineageInfo) -> None:
 
 def _split_and(node: exp.Expression) -> list[exp.Expression]:
     if isinstance(node, exp.And):
-        return _split_and(node.left) + _split_and(node.right)
+        return _split_and(node.left) + _split_and(node.right)  # type: ignore[arg-type]
     return [node]

@@ -3,11 +3,19 @@ from __future__ import annotations
 import json
 
 import boto3
-from botocore.exceptions import NoCredentialsError, ClientError
+from botocore.exceptions import ClientError, NoCredentialsError
 
 from lineage.parser import LineageInfo
 
 MODEL_ID = "anthropic.claude-haiku-4-5-20251001"
+
+
+class CredentialsError(RuntimeError):
+    pass
+
+
+class BedrockError(RuntimeError):
+    pass
 
 
 def describe_lineage(lineage: LineageInfo, sql: str, region: str = "us-east-1") -> str:
@@ -25,9 +33,9 @@ def describe_lineage(lineage: LineageInfo, sql: str, region: str = "us-east-1") 
             }),
         )
         body = json.loads(response["body"].read())
-        return body["content"][0]["text"].strip()
+        return str(body["content"][0]["text"]).strip()
     except NoCredentialsError:
-        raise RuntimeError(
+        raise CredentialsError(
             "AWS credentials not found. Configure them with:\n"
             "  aws configure\n"
             "or set the environment variables:\n"
@@ -35,7 +43,7 @@ def describe_lineage(lineage: LineageInfo, sql: str, region: str = "us-east-1") 
         )
     except ClientError as exc:
         code = exc.response["Error"]["Code"]
-        raise RuntimeError(f"AWS Bedrock error ({code}): {exc}") from exc
+        raise BedrockError(f"AWS Bedrock error ({code}): {exc}") from exc
 
 
 def _build_prompt(lineage: LineageInfo, sql: str) -> str:

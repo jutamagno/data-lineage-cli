@@ -1,4 +1,3 @@
-import pytest
 from lineage.parser import extract_lineage
 
 
