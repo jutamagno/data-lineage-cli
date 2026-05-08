@@ -1,6 +1,6 @@
 # data-lineage-cli
 
-[![CI](https://github.com/your-username/data-lineage-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/your-username/data-lineage-cli/actions/workflows/ci.yml)
+[![CI](https://github.com/jutamagno/data-lineage-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/your-username/data-lineage-cli/actions/workflows/ci.yml)
 
 A command-line tool that parses SQL queries, extracts data lineage (tables, columns, joins, filters, column-level mappings), and uses an LLM (AWS Bedrock or local Ollama) to generate plain-English descriptions.
 
