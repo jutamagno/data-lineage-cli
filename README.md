@@ -1,24 +1,30 @@
 # data-lineage-cli
 
-A command-line tool that parses SQL queries, automatically extracts data lineage (tables, columns, joins, filters), and uses AWS Bedrock to generate a plain-English description of what the query does.
+A command-line tool that parses SQL queries, extracts data lineage (tables, columns, joins, filters, column-level mappings), and uses AWS Bedrock to generate plain-English descriptions of what each query does.
 
-Built for data governance and data engineering teams who need to document and audit SQL pipelines without manual effort.
+Built for data engineering and governance teams who need to document and audit SQL pipelines without manual effort.
 
 ---
 
-## Why it matters
+## Features
 
-Data governance is a growing requirement for organizations handling sensitive or regulated data. Manually mapping the lineage of hundreds of SQL queries is not feasible — this tool automates that extraction and uses LLMs to produce human-readable descriptions, making cataloging, auditing, and documentation significantly easier.
+- **SQL parsing** — extracts source tables, target tables, columns read/written, joins, filters, CTEs, UNION branches, and subqueries
+- **Column-level lineage** — traces `source_table.source_col → target_col` mappings using `sqlglot.lineage`
+- **LLM descriptions** — calls Claude Haiku via AWS Bedrock to describe each query in plain English
+- **Description cache** — SQLite cache (`~/.lineage-cli/cache.db`) avoids redundant Bedrock calls
+- **Run history** — records every execution in `~/.lineage-cli/history.db`; view with the `stats` command
+- **Batch mode** — analyze all queries in a `.sql` file, output a JSON array
+- **File watcher** — `--watch` re-analyzes a `.sql` file on every save
+- **Structured logging** — JSON logs in pipelines, colored output in the terminal
+- **Multiple output formats** — `text` (Rich table), `json`, `openmetadata`
 
 ---
 
 ## Installation
 
-### Prerequisites
-- Docker (recommended)
-- or Python 3.12+ with a virtual environment
-
 ### With Docker (recommended)
+
+The Dockerfile enforces a `lint → test → runtime` gate: ruff, mypy, and pytest must all pass before the runtime image is built.
 
 ```bash
 git clone https://github.com/<your-username>/data-lineage-cli.git
@@ -26,141 +32,252 @@ cd data-lineage-cli
 docker build -t lineage-cli .
 ```
 
-### With a virtual environment
+### With pip
 
 ```bash
-git clone https://github.com/<your-username>/data-lineage-cli.git
-cd data-lineage-cli
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+pip install ".[aws]"        # core + AWS Bedrock
+pip install ".[aws,watch]"  # + file watcher (watchdog)
+pip install ".[aws,watch,dev]"  # + dev tools (pytest, mypy, ruff, hypothesis)
 ```
 
 ---
 
 ## AWS configuration
 
-To use the Bedrock LLM description feature, configure your AWS credentials:
+Required only for LLM descriptions. Skip with `--no-llm` during development.
 
 ```bash
 aws configure
-```
-
-Or export the environment variables:
-
-```bash
+# or
 export AWS_ACCESS_KEY_ID=your_key
 export AWS_SECRET_ACCESS_KEY=your_secret
 export AWS_DEFAULT_REGION=us-east-1
 ```
 
-The model used is `anthropic.claude-haiku-4-5-20251001` via AWS Bedrock. Make sure model access is enabled in the Bedrock console for your account.
+Model: `anthropic.claude-haiku-4-5-20251001` via AWS Bedrock. Enable model access in the Bedrock console for your account.
 
 ---
 
-## Usage
+## Commands
 
-### Syntax
+### `analyze` — parse and describe a single query
+
+```
+python main.py analyze "SQL" [OPTIONS]
+```
+
+| Option | Default | Description |
+|---|---|---|
+| `--no-llm` | off | Skip the Bedrock call; only parse and display lineage |
+| `--no-cache` | off | Force a fresh Bedrock call even if cached |
+| `--dialect` | `""` | SQL dialect: `bigquery`, `spark`, etc. |
+| `--region` | `us-east-1` | AWS region for Bedrock |
+| `--output` | `text` | Output format: `text`, `json`, `openmetadata` |
+
+**Examples:**
 
 ```bash
-# Docker
-docker run --rm lineage-cli "SQL" [--no-llm] [--dialect DIALECT] [--region REGION]
+# Rich table output (no LLM)
+python main.py analyze "SELECT u.name, o.total FROM users u JOIN orders o ON u.id = o.user_id" --no-llm
 
-# Local (with venv active)
-python main.py "SQL" [--no-llm] [--dialect DIALECT] [--region REGION]
+# With LLM description (requires AWS credentials)
+python main.py analyze "SELECT region, sum(amount) FROM sales GROUP BY region"
+
+# JSON output for programmatic use
+python main.py analyze "SELECT t.amount AS total FROM transactions t" --no-llm --output json
+
+# OpenMetadata-compatible column lineage payload
+python main.py analyze "INSERT INTO summary SELECT region, sum(amount) FROM sales GROUP BY region" \
+  --no-llm --output openmetadata
+
+# BigQuery dialect
+python main.py analyze "SELECT user_id FROM \`project.dataset.orders\`" --dialect bigquery --no-llm
 ```
 
-### Examples
-
-**Simple SELECT with filter:**
+**With Docker:**
 ```bash
-docker run --rm lineage-cli "SELECT name, email FROM users WHERE active = true" --no-llm
+docker run --rm lineage-cli analyze "SELECT name FROM users WHERE active = true" --no-llm
+docker run --rm -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_DEFAULT_REGION \
+  lineage-cli analyze "SELECT u.name, o.total FROM users u JOIN orders o ON u.id = o.user_id"
 ```
 
-**JOIN with LLM description:**
+### `batch` — analyze all queries in a `.sql` file
+
+```
+python main.py batch FILE [OPTIONS]
+```
+
+Splits the file on `;`, runs `analyze` on each query, and outputs a JSON array. Parse errors per query are captured as `{"sql": ..., "error": ...}` without aborting the batch.
+
+| Option | Default | Description |
+|---|---|---|
+| `--no-llm` | off | Skip Bedrock for all queries |
+| `--no-cache` | off | Force fresh calls |
+| `--dialect` | `""` | SQL dialect |
+| `--region` | `us-east-1` | AWS region |
+| `--watch` | off | Re-analyze on file save (requires `pip install ".[watch]"`) |
+
 ```bash
-docker run --rm \
-  -e AWS_ACCESS_KEY_ID \
-  -e AWS_SECRET_ACCESS_KEY \
-  -e AWS_DEFAULT_REGION \
-  lineage-cli "SELECT u.name, o.total FROM users u JOIN orders o ON u.id = o.user_id WHERE o.status = 'paid'"
+python main.py batch queries.sql --no-llm
+python main.py batch queries.sql --watch   # stays running, reprints on save
 ```
 
-**INSERT INTO with SELECT:**
-```bash
-docker run --rm lineage-cli \
-  "INSERT INTO summary SELECT region, sum(amount) FROM sales GROUP BY region" \
-  --no-llm
-```
-
-**BigQuery dialect:**
-```bash
-docker run --rm lineage-cli \
-  "SELECT user_id FROM \`project.dataset.orders\` WHERE status = 'paid'" \
-  --dialect bigquery --no-llm
-```
-
-### Expected output
+### `stats` — show usage statistics
 
 ```
-Detected Lineage
-╭────────────────────┬────────────────────────────────────────╮
-│ Field              │ Value                                  │
-├────────────────────┼────────────────────────────────────────┤
-│ Sources            │ users, orders                          │
-├────────────────────┼────────────────────────────────────────┤
-│ Target             │ (direct query)                         │
-├────────────────────┼────────────────────────────────────────┤
-│ Columns read       │ name, total, id, user_id, status       │
-├────────────────────┼────────────────────────────────────────┤
-│ Joins              │ INNER JOIN orders                      │
-├────────────────────┼────────────────────────────────────────┤
-│ Filters            │ o.status = 'paid'                      │
-╰────────────────────┴────────────────────────────────────────╯
-
-╭─ LLM-generated description ────────────────────────────────╮
-│                                                             │
-│  This query joins customer data (users) with their paid     │
-│  orders (orders), returning the customer name and order     │
-│  total. The join is on user id, filtered to orders with     │
-│  status 'paid'.                                             │
-│                                                             │
-╰─────────────────────────────────────────────────────────────╯
+python main.py stats
 ```
+
+Displays total runs, LLM calls, cache hits, average Bedrock latency, estimated cost, and the last 10 runs from `~/.lineage-cli/history.db`.
+
+---
+
+## Output formats
+
+### `--output text` (default)
+
+```
+╭────────────────────┬──────────────────────────────────────────╮
+│ Field              │ Value                                    │
+├────────────────────┼──────────────────────────────────────────┤
+│ Sources            │ users, orders                            │
+├────────────────────┼──────────────────────────────────────────┤
+│ Target             │ (direct query)                           │
+├────────────────────┼──────────────────────────────────────────┤
+│ Columns read       │ name, total, id, user_id, status         │
+├────────────────────┼──────────────────────────────────────────┤
+│ Joins              │ INNER JOIN orders                        │
+├────────────────────┼──────────────────────────────────────────┤
+│ Filters            │ o.status = 'paid'                        │
+├────────────────────┼──────────────────────────────────────────┤
+│ Column lineage     │ users.id → id                            │
+│                    │ orders.total → total                     │
+╰────────────────────┴──────────────────────────────────────────╯
+
+╭─ LLM-generated description ──────────────────────────────────╮
+│  This query joins customers with their paid orders, returning │
+│  the customer name and order total.                           │
+╰───────────────────────────────────────────────────────────────╯
+```
+
+### `--output json`
+
+```json
+{
+  "source_tables": ["users", "orders"],
+  "target_table": null,
+  "columns_read": ["name", "total", "id", "user_id", "status"],
+  "columns_written": [],
+  "joins": [{"type": "INNER", "table": "orders"}],
+  "filters": ["o.status = 'paid'"],
+  "column_lineage": [
+    {"source_table": "users", "source_col": "id", "target_col": "id"},
+    {"source_table": "orders", "source_col": "total", "target_col": "total"}
+  ],
+  "sql": "SELECT ...",
+  "description": "This query joins..."
+}
+```
+
+### `--output openmetadata`
+
+Emits an OpenMetadata-compatible `columnsLineage` payload grouped by source table:
+
+```json
+[
+  {
+    "fromTable": "transactions",
+    "toTable": "summary",
+    "lineageDetails": {
+      "sql": "INSERT INTO summary SELECT ...",
+      "columnsLineage": [
+        {"fromColumns": ["transactions.amount"], "toColumn": "total"}
+      ]
+    }
+  }
+]
+```
+
+---
+
+## Parser capabilities
+
+| SQL construct | Supported |
+|---|---|
+| `SELECT` with aliases, expressions, `*` | Yes |
+| `INSERT INTO ... SELECT` | Yes |
+| `CREATE TABLE ... AS SELECT` | Yes |
+| `JOIN` (INNER, LEFT, RIGHT, FULL, CROSS) | Yes |
+| `WHERE` with multiple `AND` conditions | Yes |
+| CTEs (`WITH x AS (...)`) | Yes |
+| `UNION` / `UNION ALL` | Yes |
+| Subqueries in `FROM` | Yes |
+| BigQuery, Spark dialects | Yes |
+| Column-level lineage | Best-effort via `sqlglot.lineage` |
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────┐     ┌──────────────┐     ┌─────────────────┐     ┌──────────────┐
-│  SQL input  │────▶│   sqlglot    │────▶│  AWS Bedrock    │────▶│ Rich output  │
-│  (CLI arg)  │     │  (parser.py) │     │  (bedrock.py)   │     │(formatter.py)│
-└─────────────┘     └──────────────┘     └─────────────────┘     └──────────────┘
-                          │                       │
-                    LineageInfo            plain-English
-                    (structured)           description
+CLI (main.py / Typer)
+        │
+        ├── analyze ──▶ parser.py ──▶ LineageInfo + ColumnEdge[]
+        │                   │               │
+        │               sqlglot AST    sqlglot.lineage
+        │                   │
+        │            bedrock.py ──▶ AWS Bedrock (Claude Haiku)
+        │            cache.py   ──▶ ~/.lineage-cli/cache.db
+        │            history.py ──▶ ~/.lineage-cli/history.db
+        │            formatter.py ──▶ Rich terminal output
+        │            output.py ──▶ JSON / OpenMetadata
+        │
+        ├── batch ──▶ batch.py ──▶ split_sql → [analyze each]
+        │                │
+        │            watchdog (optional, --watch)
+        │
+        └── stats ──▶ history.py ──▶ formatter.py
 ```
 
-**Flow:**
-1. The SQL query is received as a positional argument via Typer
-2. `parser.py` uses sqlglot to build the AST and extract a `LineageInfo` object
-3. `bedrock.py` builds a structured prompt and calls Claude Haiku via boto3
-4. `formatter.py` renders a table and panel in the terminal using Rich
+**Key modules:**
+
+| File | Responsibility |
+|---|---|
+| `lineage/parser.py` | AST traversal, `LineageInfo`, `ColumnEdge`, column lineage extraction |
+| `lineage/bedrock.py` | AWS Bedrock client (`BedrockProvider`) |
+| `lineage/providers.py` | `LLMProvider` protocol + `MockProvider` for tests |
+| `lineage/prompts.py` | Versioned prompt builder (`build_prompt(lineage, sql, version="v1")`) |
+| `lineage/cache.py` | SQLite description cache |
+| `lineage/history.py` | SQLite run history and stats |
+| `lineage/batch.py` | Multi-query file analysis |
+| `lineage/output.py` | JSON and OpenMetadata serialization |
+| `lineage/formatter.py` | Rich table and panel rendering |
+| `lineage/log.py` | structlog — JSON in CI, colored in TTY |
 
 ---
 
 ## Tests
 
 ```bash
-# Docker
-docker run --rm --entrypoint pytest lineage-cli tests/ -v
+# Docker (lint + typecheck + tests run automatically at build time)
+docker build -t lineage-cli .
 
-# Local (with venv active)
+# Local
 pytest tests/ -v
 ```
 
-Test coverage: simple SELECT, INNER JOIN, LEFT JOIN with multiple filters, INSERT INTO, CREATE TABLE AS SELECT, BigQuery dialect, and explicit column list in INSERT.
+**91 tests** covering:
+
+- SQL parsing: SELECT, INSERT, CREATE, JOIN, WHERE, CTEs, UNION, subqueries, BigQuery dialect
+- Column-level lineage: `ColumnEdge` extraction and graceful fallback
+- LLM providers: `MockProvider` protocol compliance, call recording
+- Prompt building: version selection, content assertions
+- Cache: SQLite key isolation, overwrite, miss
+- History: recording, stats aggregation, cost estimation
+- Formatter: Rich table fields, column lineage display, LLM panel
+- Output: JSON serialization, OpenMetadata format
+- Batch: SQL splitting, error isolation per query
+- Property-based (Hypothesis): 300 generated queries, parser never raises
 
 ---
 
@@ -168,38 +285,13 @@ Test coverage: simple SELECT, INNER JOIN, LEFT JOIN with multiple filters, INSER
 
 | Decision | Reason |
 |---|---|
-| **sqlglot** over regex | Regex breaks on complex queries (subqueries, aliases, CTEs). sqlglot produces a full AST and supports multiple dialects reliably. |
-| **Claude Haiku** via Bedrock | Best cost-to-quality ratio for short descriptions (2-3 sentences). Bedrock keeps data within AWS infrastructure, important for compliance-restricted environments. |
-| **Typer** over argparse | Cleaner declarative API, auto-formatted help output, and native support for boolean flags like `--no-llm`. |
-| **Rich** for output | Colored tables and panels improve lineage readability without heavy dependencies. |
-| **`--no-llm` flag** | Allows using the parser and formatter without any AWS credentials — useful for CI and local development. |
-
----
-
-## Project structure
-
-```
-data-lineage-cli/
-├── lineage/
-│   ├── __init__.py
-│   ├── parser.py        # extracts tables, columns, joins, filters via sqlglot
-│   ├── bedrock.py       # AWS Bedrock client, calls Claude Haiku
-│   └── formatter.py     # formats colored output in the terminal with Rich
-├── tests/
-│   ├── __init__.py
-│   └── test_parser.py
-├── main.py              # Typer entrypoint
-├── Dockerfile
-├── requirements.txt
-└── README.md
-```
-
----
-
-## Next steps
-
-- Support for sequential multi-query analysis to detect lineage across pipeline steps
-- JSON export for ingestion into data catalogs like OpenMetadata or DataHub
-- `--watch` mode that monitors a `.sql` file and re-analyzes on save
-- Description caching to avoid re-calling Bedrock for queries already seen
-- CTE support (`WITH ... AS (...)`) in the parser
+| **sqlglot** for parsing | Full AST — handles CTEs, UNION, subqueries, and 20+ dialects reliably |
+| **`sqlglot.lineage`** for column lineage | Official API, traces column provenance through aliases and aggregates |
+| **Claude Haiku via Bedrock** | Best cost-to-quality for short descriptions; data stays within AWS |
+| **SQLite for cache and history** | Zero infrastructure, portable, sufficient for local use |
+| **`LLMProvider` protocol** | Enables `MockProvider` in tests without AWS credentials |
+| **Versioned prompts** | `build_prompt(lineage, sql, version="v1")` — prompts can be improved without breaking callers |
+| **structlog** | JSON in CI/pipelines, colored in terminal — same code, no branches |
+| **Hypothesis** for property tests | Catches parser regressions across random SQL shapes, not just fixed examples |
+| **Multi-stage Dockerfile** | `lint → test → runtime` — build fails if ruff, mypy, or pytest fail |
+| **Optional deps `[aws]`, `[watch]`** | Core package has no cloud or OS dependencies; heavy deps are opt-in |
