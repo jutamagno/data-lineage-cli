@@ -48,6 +48,13 @@ def _print_structure_table(lineage: LineageInfo) -> None:
         )
         table.add_row("Filters", filter_text)
 
+    if lineage.column_lineage:
+        edges_text = "\n".join(
+            f"[dim]{e.source_table}.{e.source_col}[/dim] → [bold]{e.target_col}[/bold]"
+            for e in lineage.column_lineage
+        )
+        table.add_row("Column lineage", edges_text)
+
     console.print()
     console.print(table)
 

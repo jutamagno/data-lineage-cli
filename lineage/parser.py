@@ -1,9 +1,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import sqlglot
 import sqlglot.expressions as exp
+
+if TYPE_CHECKING:
+    from sqlglot.lineage import Node as _LineageNode
+
+
+@dataclass
+class ColumnEdge:
+    source_table: str
+    source_col: str
+    target_col: str
 
 
 @dataclass
@@ -14,6 +25,7 @@ class LineageInfo:
     columns_written: list[str] = field(default_factory=list)
     joins: list[dict[str, str]] = field(default_factory=list)
     filters: list[str] = field(default_factory=list)
+    column_lineage: list[ColumnEdge] = field(default_factory=list)
 
 
 def extract_lineage(sql: str, dialect: str = "") -> LineageInfo:
@@ -26,6 +38,7 @@ def extract_lineage(sql: str, dialect: str = "") -> LineageInfo:
     _extract_columns(tree, info)
     _extract_joins(tree, info)
     _extract_filters(tree, info)
+    info.column_lineage = _extract_column_lineage(sql, dialect)
 
     return info
 
@@ -146,3 +159,67 @@ def _split_and(node: exp.Expression) -> list[exp.Expression]:
     if isinstance(node, exp.And):
         return _split_and(node.left) + _split_and(node.right)  # type: ignore[arg-type]
     return [node]
+
+
+def _extract_column_lineage(sql: str, dialect: str) -> list[ColumnEdge]:
+    try:
+        from sqlglot.lineage import lineage as sql_lineage
+
+        tree: exp.Expression = sqlglot.parse_one(sql, dialect=dialect or None)  # type: ignore[assignment]
+        select = tree.find(exp.Select)
+        if select is None:
+            return []
+
+        edges: list[ColumnEdge] = []
+        seen: set[tuple[str, str, str]] = set()
+
+        for sel_expr in select.expressions:
+            if isinstance(sel_expr, exp.Star):
+                continue
+            if isinstance(sel_expr, exp.Alias):
+                target_col = sel_expr.alias
+            elif isinstance(sel_expr, exp.Column):
+                target_col = sel_expr.name
+            else:
+                continue
+            if not target_col:
+                continue
+
+            try:
+                root = sql_lineage(
+                    column=target_col,
+                    sql=sql,
+                    dialect=dialect or None,
+                )
+            except Exception:
+                continue
+
+            for leaf in _walk_leaves(root):
+                if not isinstance(leaf.source, exp.Table):
+                    continue
+                source_table = leaf.source.name
+                source_col = leaf.name.split(".")[-1]
+                if not (source_table and source_col):
+                    continue
+                key = (source_table, source_col, target_col)
+                if key not in seen:
+                    seen.add(key)
+                    edges.append(ColumnEdge(
+                        source_table=source_table,
+                        source_col=source_col,
+                        target_col=target_col,
+                    ))
+
+    except Exception:
+        return []
+
+    return edges
+
+
+def _walk_leaves(node: _LineageNode) -> list[_LineageNode]:
+    if not node.downstream:
+        return [node]
+    leaves: list[_LineageNode] = []
+    for child in node.downstream:
+        leaves.extend(_walk_leaves(child))
+    return leaves

@@ -77,3 +77,22 @@ def test_llm_panel_shown_when_description_provided(patch_console: Console) -> No
 def test_llm_panel_hidden_when_no_description(patch_console: Console) -> None:
     fmt.print_lineage(LineageInfo(), "")
     assert "LLM-generated description" not in _output(patch_console)
+
+
+def test_column_lineage_displayed(patch_console: Console) -> None:
+    from lineage.parser import ColumnEdge
+    lineage = LineageInfo(
+        column_lineage=[
+            ColumnEdge(source_table="transactions", source_col="amount", target_col="total"),
+        ]
+    )
+    fmt.print_lineage(lineage, "")
+    output = _output(patch_console)
+    assert "transactions" in output
+    assert "amount" in output
+    assert "total" in output
+
+
+def test_column_lineage_hidden_when_empty(patch_console: Console) -> None:
+    fmt.print_lineage(LineageInfo(), "")
+    assert "Column lineage" not in _output(patch_console)
