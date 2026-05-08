@@ -64,3 +64,45 @@ def _print_description(description: str) -> None:
     )
     console.print()
     console.print(panel)
+
+
+def print_stats(stats: dict[str, object]) -> None:
+    summary = Table(title="Usage Statistics", box=box.ROUNDED, show_lines=True, title_style="bold white")
+    summary.add_column("Metric", style="bold", min_width=22)
+    summary.add_column("Value", min_width=20)
+
+    summary.add_row("Total runs", str(stats["total_runs"]))
+    summary.add_row("LLM calls", f"[cyan]{stats['llm_calls']}[/cyan]")
+    summary.add_row("Runs without LLM", str(stats["no_llm_runs"]))
+    summary.add_row("Errors", f"[red]{stats['errors']}[/red]" if stats["errors"] else "0")
+
+    latency = stats["avg_latency_ms"]
+    summary.add_row("Avg Bedrock latency", f"{latency} ms" if latency is not None else "—")
+    summary.add_row("Estimated Bedrock cost", f"[green]${stats['estimated_cost_usd']}[/green]")
+
+    console.print()
+    console.print(summary)
+
+    recent: list[tuple[str, str, str, int, int | None]] = stats["recent"]  # type: ignore[assignment]
+    if not recent:
+        return
+
+    history = Table(title="Last 10 runs", box=box.SIMPLE, title_style="bold white")
+    history.add_column("Hash", style="dim", min_width=14)
+    history.add_column("Dialect", min_width=10)
+    history.add_column("Timestamp", min_width=26)
+    history.add_column("LLM", min_width=5)
+    history.add_column("Latency", min_width=10)
+
+    for row in recent:
+        h, dialect, ts, llm_used, latency_ms = row
+        history.add_row(
+            h,
+            dialect,
+            ts,
+            "[cyan]yes[/cyan]" if llm_used else "no",
+            f"{latency_ms} ms" if latency_ms is not None else "—",
+        )
+
+    console.print()
+    console.print(history)
