@@ -426,3 +426,17 @@ pytest tests/ -v
 | **FastAPI + Pydantic** | Typed request/response models, automatic OpenAPI docs at `/docs` |
 | **dbt Jinja2 stripper** | Regex-based, no Jinja2 dependency — handles `ref`, `source`, and block tags |
 | **Optional deps `[aws]`, `[watch]`, `[server]`** | Core package has no cloud or OS dependencies; heavy deps are opt-in |
+
+---
+
+## Roadmap
+
+- [ ] **Python 3.12 type annotations** — migrate to `X | Y` union syntax throughout; currently uses `Optional[X]` for compatibility
+- [ ] **Anthropic provider via SDK** — add a direct Anthropic provider (not via Bedrock) for users who don't have AWS but have an `ANTHROPIC_API_KEY`
+- [ ] **GitHub Actions CI** — wire up the multi-stage Dockerfile as a CI gate so the badge at the top reflects actual build status
+- [ ] **`--output csv`** — export lineage as a flat CSV suitable for loading into Excel, OpenMetadata, or a BI tool
+- [ ] **Column lineage confidence scores** — `sqlglot.lineage` sometimes returns partial results for complex expressions; surface a `confidence` field in the JSON output
+- [ ] **Pipeline mode** — `lineage pipeline queries/*.sql` analyzes all files, stitches together cross-query lineage (table produced by query A consumed by query B), and outputs a DAG
+- [ ] **SQLMesh integration** — add a `sqlmesh` command analogous to `dbt` for users migrating from dbt to SQLMesh
+- [ ] **VS Code extension** — inline lineage diagram triggered on `Ctrl+Shift+L` in `.sql` files, using the HTTP server as a backend
+- [ ] **Persistent run history export** — `stats --export lineage_history.csv` to extract the full `~/.lineage-cli/history.db` for dashboarding
