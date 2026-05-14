@@ -1,6 +1,6 @@
 # data-lineage-cli
 
-[![CI](https://github.com/jutamagno/data-lineage-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/your-username/data-lineage-cli/actions/workflows/ci.yml)
+[![CI](https://github.com/jutamagno/data-lineage-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/jutamagno/data-lineage-cli/actions/workflows/ci.yml)
 
 A command-line tool that parses SQL queries, extracts data lineage (tables, columns, joins, filters, column-level mappings), and uses an LLM (AWS Bedrock or local Ollama) to generate plain-English descriptions.
 
@@ -32,7 +32,7 @@ Built for data engineering and governance teams who need to document and audit S
 The Dockerfile enforces a `lint → test → runtime` gate: ruff, mypy, and pytest must all pass before the runtime image is built.
 
 ```bash
-git clone https://github.com/<your-username>/data-lineage-cli.git
+git clone https://github.com/jutamagno/data-lineage-cli.git
 cd data-lineage-cli
 docker build -t lineage-cli .
 ```
